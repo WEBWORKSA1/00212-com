@@ -146,7 +146,48 @@ def ld(obj):
     return '<script type="application/ld+json">' + json.dumps(obj, ensure_ascii=False) + "</script>"
 
 
+def extract_missing():
+    """Recreate src/pages/*.html for any published root page that has no source yet.
+    Lets you edit a finished page, or start from the published HTML, and keep using the builder."""
+    import glob
+    made = 0
+    for path in sorted(glob.glob(os.path.join(ROOT, "*.html")) + glob.glob(os.path.join(ROOT, "guides", "*.html"))):
+        rel = os.path.relpath(path, ROOT).replace(os.sep, "/")
+        dest = os.path.join(SRC, rel)
+        if os.path.exists(dest):
+            continue
+        raw = open(path, encoding="utf-8").read()
+        if '<main id="main">' not in raw:
+            continue
+        g = lambda pat: (re.search(pat, raw, re.S).group(1) if re.search(pat, raw, re.S) else "")
+        meta = {"title": html.unescape(g(r"<title>(.*?)</title>")),
+                "desc": html.unescape(g(r'<meta name="description" content="(.*?)">')),
+                "crumb": html.unescape(g(r'<nav class="breadcrumbs".*?<span>(.*?)</span></nav>')) or rel}
+        cur = g(r'<a href="[^"]*?([a-z-]+)\.html" aria-current="page"')
+        if cur:
+            meta["nav"] = cur
+        if 'assets/js/tools.js' in raw:
+            meta["tools"] = True
+        if '"@type": "Article"' in raw:
+            meta["type"] = "article"
+        body = raw.split('<main id="main">\n', 1)[1].rsplit("</main>", 1)[0]
+        faq_marker = '<section><div class="container"><div class="section-head"><span class="tag">FAQ</span>'
+        if faq_marker in body:
+            body, faq = body.split(faq_marker, 1)
+            meta["faq"] = [[html.unescape(q), a] for q, a in re.findall(r"<details><summary>(.*?)</summary><p>(.*?)</p></details>", faq, re.S)]
+        body = re.sub(r'<nav class="breadcrumbs".*?</nav>', "{CRUMBS}", body, count=1, flags=re.S)
+        if rel.startswith("guides/"):
+            body = body.replace('href="../', 'href="{B}')
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "w", encoding="utf-8") as fh:
+            fh.write("<!--META " + json.dumps(meta, ensure_ascii=False) + " -->\n" + body)
+        made += 1
+    if made:
+        print("Extracted", made, "missing page source(s) into src/pages/")
+
+
 def build():
+    extract_missing()
     pages, index = [], []
     for dirpath, _, files in os.walk(SRC):
         for f in sorted(files):
