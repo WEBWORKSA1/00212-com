@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /src/
+Disallow: /docs/
+
+Sitemap: https://00212.com/sitemap.xml
